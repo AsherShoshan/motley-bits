@@ -61,9 +61,10 @@ class SplitReviews(object):
         self.reviewers = {reviewer: [] for reviewer in reviewers_list}
 
     def _init_who_can_review_dict(self):
-        self.who_can_review_each_commit = \
-            {committer: self.who_can_review_committer(committer)
-             for committer in self.committers}
+        self.who_can_review_each_commit = {
+            committer: self.who_can_review_committer(committer)
+            for committer in self.committers
+            }
 
     def who_can_review_committer(self, committer):
         possible_reviewers = []
@@ -117,12 +118,15 @@ class SplitReviews(object):
 
     def choose_reviewer(self, committer):
         chosen_reviewer = None
+        chosen_len = 0
         for reviewer in self.who_can_review_each_commit[committer]:
+            reviewer_len = len(self.reviewers[reviewer])
             if chosen_reviewer is None:
                 chosen_reviewer = reviewer
-            elif len(self.reviewers[reviewer]) < \
-                    len(self.reviewers[chosen_reviewer]):
+                chosen_len = reviewer_len
+            elif reviewer_len < chosen_len:
                 chosen_reviewer = reviewer
+                chosen_len = reviewer_len
         self.remove_possible_reviewer(committer, chosen_reviewer)
         return chosen_reviewer
 
@@ -141,15 +145,23 @@ def main(argv):
         if len(argv) == 0:
             raise getopt.GetoptError("No arguments given")
         opts, args = getopt.getopt(
-            argv, "hc:r:n:", ["committers=", "reviewers="]
+            argv,
+            "hc:r:n:",
+            ["committers=", "reviewers=", "reviews_per_patch="]
         )
     except getopt.GetoptError:
-        print 'split_reviewers.py -c <committers_file> -r <reviewers_file>'
+        print(
+            'split_reviewers.py -c <committers_file> -r <reviewers_file>'
+            '[-n <reviews_per_patch>]'
+        )
         sys.exit(2)
 
     for opt, arg in opts:
         if opt == '-h':
-            print 'split_reviewers.py -c <committers_file> -r <reviewers_file>'
+            print(
+                'split_reviewers.py -c <committers_file> '
+                '-r <reviewers_file>[-n <reviews_per_patch>]'
+            )
             sys.exit()
         elif opt in ("-c", "--committers"):
             committers = arg
