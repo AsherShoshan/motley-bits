@@ -46,10 +46,12 @@ class SplitReviews(object):
 
     commiters = []
     reviewers = {}
+    who_can_review_each_commit = {}
 
     def __init__(self, committers_file, reviewers_file):
         self._init_committers_list(committers_file)
         self._init_reviewers_dict(reviewers_file)
+        self._init_who_can_review_dict()
 
     def _init_committers_list(self, committers_file):
         self.committers = self._file_to_list(committers_file)
@@ -57,6 +59,21 @@ class SplitReviews(object):
     def _init_reviewers_dict(self, reviewers_file):
         reviewers_list = self._file_to_list(reviewers_file)
         self.reviewers = {reviewer: [] for reviewer in reviewers_list}
+
+    def _init_who_can_review_dict(self):
+        self.who_can_review_each_commit = \
+            {committer: self.who_can_review_committer(committer)
+             for committer in self.committers}
+
+    def who_can_review_committer(self, committer):
+        possible_reviewers = []
+        for reviewer in self.reviewers.keys():
+            if (
+                    reviewer.group != committer.group
+                    and committer not in self.reviewers[reviewer]
+            ):
+                possible_reviewers.append(reviewer)
+        return possible_reviewers
 
     def _file_to_list(self, file_name):
         dummy_list = []
@@ -71,7 +88,9 @@ class SplitReviews(object):
         name, group = line.replace('\n', '').replace(' ', '').split(',')
         return Person(name, group)
 
-
+    def print_reviewer_and_reviewee(self):
+        for reviewer, reviewees in self.reviewers.items():
+            print("%s to review %s" % (reviewer, reviewees))
 
     def split_evenly_or_almost_evenly(self):
         random.shuffle(self.committers)
@@ -89,18 +108,41 @@ class SplitReviews(object):
             self.reviewers[reviewer] = group_to_review
             ppl_to_be_reviewed.remove(group_to_review)
 
-    def print_reviewer_and_reviewee(self):
-        for reviewer, group_to_review in self.reviewers.items():
-            print("%s to review %s" % (reviewer, group_to_review))
+    def divide_reviews(self, min_reviews):
+        for i in xrange(min_reviews):
+            for committer in self.committers:
+                reviewer = self.choose_reviewer(committer)
+                if reviewer:
+                    self.reviewers[reviewer].append(committer)
+
+    def choose_reviewer(self, committer):
+        chosen_reviewer = None
+        for reviewer in self.who_can_review_each_commit[committer]:
+            if chosen_reviewer is None:
+                chosen_reviewer = reviewer
+            elif len(self.reviewers[reviewer]) < \
+                    len(self.reviewers[chosen_reviewer]):
+                chosen_reviewer = reviewer
+        self.remove_possible_reviewer(committer, chosen_reviewer)
+        return chosen_reviewer
+
+    def remove_possible_reviewer(self, committer, reviewer):
+        if reviewer is None:
+            print("ERROR: couldn't find more reviewers for %s" % committer)
+        else:
+            self.who_can_review_each_commit[committer].remove(reviewer)
 
 
 def main(argv):
     committers = ''
     reviewers = ''
+    min_reviews = 0
     try:
         if len(argv) == 0:
             raise getopt.GetoptError("No arguments given")
-        opts, args = getopt.getopt(argv, "hc:r:", ["committers=", "reviewers="])
+        opts, args = getopt.getopt(
+            argv, "hc:r:n:", ["committers=", "reviewers="]
+        )
     except getopt.GetoptError:
         print 'split_reviewers.py -c <committers_file> -r <reviewers_file>'
         sys.exit(2)
@@ -113,8 +155,14 @@ def main(argv):
             committers = arg
         elif opt in ("-r", "--reviewers"):
             reviewers = arg
+        elif opt in ("-n", "--reviews"):
+            min_reviews = int(arg)
+
     x = SplitReviews(committers, reviewers)
-    x.who_review_whom()
+    if min_reviews:
+        x.divide_reviews(min_reviews)
+    else:
+        x.who_review_whom()
     x.print_reviewer_and_reviewee()
 
 if __name__ == "__main__":
