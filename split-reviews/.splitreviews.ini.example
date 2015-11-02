@@ -1,0 +1,6 @@
+[parameters]
+gerrit_url=https://url.gerrit.xyz.com/gerrit/#/q
+mail_server=smtp.xyz.com
+from_email=from@xyz.com
+to_email=to@xyz.com
+

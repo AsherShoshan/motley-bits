@@ -11,11 +11,16 @@ SplitReviews:
    python split_reviewers.py -c <committers_file> -r <reviewers_file>
 
 """
-#!/bin/python
+#!/usr/bin/python
 
 import random
 import sys
-import getopt
+import argparse
+import smtplib
+
+from datetime import datetime
+from email.mime.text import MIMEText
+from ConfigParser import ConfigParser
 
 
 class Person(object):
@@ -47,11 +52,15 @@ class SplitReviews(object):
     commiters = []
     reviewers = {}
     who_can_review_each_commit = {}
+    gerrit_url = None
+    results = ''
 
-    def __init__(self, committers_file, reviewers_file):
+    # 'https://code.engineering.redhat.com/gerrit/#/q'
+    def __init__(self, committers_file, reviewers_file, gerrit_url=None):
         self._init_committers_list(committers_file)
         self._init_reviewers_dict(reviewers_file)
         self._init_who_can_review_dict()
+        self.gerrit_url = gerrit_url
 
     def _init_committers_list(self, committers_file):
         self.committers = self._file_to_list(committers_file)
@@ -91,7 +100,37 @@ class SplitReviews(object):
 
     def print_reviewer_and_reviewee(self):
         for reviewer, reviewees in self.reviewers.items():
-            print("%s to review %s" % (reviewer, reviewees))
+            if not (self.reviewers[reviewer]):
+                continue
+            review_list = '%s to review %s' % (reviewer, reviewees)
+            owners = '(owner:%s' % (self.reviewers[reviewer].pop())
+            while self.reviewers[reviewer]:
+                owners += '+OR+owner:%s' % self.reviewers[reviewer].pop()
+
+            self.results += review_list + '\n'
+
+            if self.gerrit_url:
+                status = ')+AND+status:open'
+                gerrit_query = "{0}/{1}{2}".format(
+                    self.gerrit_url, owners, status
+                )
+                self.results += gerrit_query + '\n\n'
+
+        print self.results
+
+    def email_results(self, mail_server, from_email, to_email=[]):
+
+        print 'Sending email to %s' % to_email
+        s = smtplib.SMTP(mail_server)
+
+        msg = MIMEText(self.results)
+
+        msg['Subject'] = 'Reviews for %s\%s' % (
+            datetime.now().month, datetime.now().year
+        )
+        msg['From'] = from_email
+        msg['To'] = from_email
+        s.sendmail(from_email, to_email, msg.as_string())
 
     def split_evenly_or_almost_evenly(self):
         random.shuffle(self.committers)
@@ -138,44 +177,78 @@ class SplitReviews(object):
 
 
 def main(argv):
-    committers = ''
-    reviewers = ''
-    min_reviews = 0
-    try:
-        if len(argv) == 0:
-            raise getopt.GetoptError("No arguments given")
-        opts, args = getopt.getopt(
-            argv,
-            "hc:r:n:",
-            ["committers=", "reviewers=", "reviews_per_patch="]
-        )
-    except getopt.GetoptError:
-        print(
-            'split_reviewers.py -c <committers_file> -r <reviewers_file>'
-            '[-n <reviews_per_patch>]'
-        )
-        sys.exit(2)
 
-    for opt, arg in opts:
-        if opt == '-h':
-            print(
-                'split_reviewers.py -c <committers_file> '
-                '-r <reviewers_file>[-n <reviews_per_patch>]'
-            )
-            sys.exit()
-        elif opt in ("-c", "--committers"):
-            committers = arg
-        elif opt in ("-r", "--reviewers"):
-            reviewers = arg
-        elif opt in ("-n", "--reviews"):
-            min_reviews = int(arg)
+    parser = argparse.ArgumentParser(
+        description='Split gerrit reviews among reviewers'
+    )
 
-    x = SplitReviews(committers, reviewers)
-    if min_reviews:
-        x.divide_reviews(min_reviews)
+    parser.add_argument(
+        '--committers',
+        action='store',
+        dest='committers',
+        help='File contains committers: committer, team'
+    )
+
+    parser.add_argument(
+        '--reviewers',
+        action='store',
+        dest='reviewers',
+        help='File contains reviewers: reviewer, team'
+    )
+
+    parser.add_argument(
+        '--reviews-per-commit',
+        action='store',
+        dest='min_reviews_per_commit',
+        help='Number of reviewers per commit', type=int
+    )
+
+    parser.add_argument(
+        '--with-gerrit-url',
+        action='store_true',
+        default=False,
+        help='Print Gerrit URL defined in .splitreview.ini'
+    )
+
+    parser.add_argument(
+        '--send-email',
+        action='store_true',
+        default=False,
+        help='Send email (defined in .splitreview.ini)'
+    )
+
+    config = ConfigParser()
+
+    config.read('.splitreviews.ini')
+
+    args = parser.parse_args()
+
+    if args.with_gerrit_url:
+        x = SplitReviews(
+            args.committers,
+            args.reviewers,
+            gerrit_url=config.get('parameters', 'gerrit_url')
+        )
+    else:
+        x = SplitReviews(args.committers, args.reviewers)
+
+    if args.min_reviews_per_commit:
+        x.divide_reviews(args.min_reviews_per_commit)
     else:
         x.who_review_whom()
+
     x.print_reviewer_and_reviewee()
 
+    if args.send_email:
+        x.email_results(
+            config.get('parameters', 'mail_server'),
+            config.get('parameters', 'from_email'),
+            config.get('parameters', 'to_email')
+        )
+
+
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    if len(sys.argv) > 2:
+        main(sys.argv[1:])
+    else:
+        print 'Try %s -h' % sys.argv[0]
