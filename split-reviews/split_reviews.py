@@ -55,7 +55,6 @@ class SplitReviews(object):
     gerrit_url = None
     results = ''
 
-    # 'https://code.engineering.redhat.com/gerrit/#/q'
     def __init__(self, committers_file, reviewers_file, gerrit_url=None):
         self._init_committers_list(committers_file)
         self._init_reviewers_dict(reviewers_file)
