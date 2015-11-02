@@ -131,6 +131,7 @@ class SplitReviews(object):
         msg['From'] = from_email
         msg['To'] = from_email
         s.sendmail(from_email, to_email, msg.as_string())
+        s.quit()
 
     def split_evenly_or_almost_evenly(self):
         random.shuffle(self.committers)
